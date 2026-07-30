@@ -1,0 +1,544 @@
+/**
+ * ePIBG SK TEMIN v2.1.0 STABLE
+ * Kaunter Bendahari
+ */
+
+const EPIBG = Object.freeze({
+  VERSION: '2.1.0-STABLE',
+  SPREADSHEET_ID: '1J8TB06IAMP6hEC-3h0f7YHeTgsMGsnCh_PoNEzbFV3w',
+  TIMEZONE: 'Asia/Kuala_Lumpur',
+  SESSION_YEAR: 2026,
+  SHEETS: Object.freeze({
+    FAMILY: 'KELUARGA_MASTER',
+    STUDENT: 'MURID_MASTER',
+    PAYMENT: 'BAYARAN',
+    RECEIPT: 'RESIT'
+  }),
+  PAYMENT_STATUS: 'DISAHKAN',
+  RECEIPT_PREFIX: 'PIBG'
+});
+
+function doGet() {
+  return HtmlService
+    .createTemplateFromFile('Index')
+    .evaluate()
+    .setTitle('ePIBG SK Temin — Kaunter Bendahari')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+function getAppBootstrap() {
+  const ss = getSpreadsheet_();
+  const paymentSheet = requireSheet_(ss, EPIBG.SHEETS.PAYMENT);
+
+  return {
+    success: true,
+    version: EPIBG.VERSION,
+    school: 'SEKOLAH KEBANGSAAN TEMIN',
+    year: EPIBG.SESSION_YEAR,
+    paymentCount: Math.max(0, paymentSheet.getLastRow() - 1),
+    officers: [
+      'BENDAHARI PIBG',
+      'PENOLONG BENDAHARI',
+      'SETIAUSAHA PIBG',
+      'GURU KELAS'
+    ],
+    methods: [
+      'TUNAI',
+      'BANK / QR'
+    ]
+  };
+}
+
+function searchStudents(query) {
+  const q = normalizeSearch_(query);
+
+  if (q.length < 2) {
+    throw new Error('Taip sekurang-kurangnya 2 aksara nama murid.');
+  }
+
+  const ss = getSpreadsheet_();
+  const studentSheet = requireSheet_(ss, EPIBG.SHEETS.STUDENT);
+  const rows = getTable_(studentSheet);
+  const results = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+
+    const studentId = clean_(row[0]);
+    const name = clean_(row[1]);
+    const year = clean_(row[3]);
+    const className = clean_(row[4]);
+    const familyId = clean_(row[7]);
+
+    const searchText = normalizeSearch_(
+      [studentId, name, year, className, familyId].join(' ')
+    );
+
+    if (!searchText.includes(q)) continue;
+
+    results.push({
+      studentId,
+      name,
+      year,
+      className,
+      familyId
+    });
+
+    if (results.length >= 30) break;
+  }
+
+  return {
+    success: true,
+    results
+  };
+}
+
+function getFamilyDetails(familyId) {
+  const id = clean_(familyId);
+
+  if (!id) {
+    throw new Error('ID keluarga tidak diterima.');
+  }
+
+  const ss = getSpreadsheet_();
+  const familySheet = requireSheet_(ss, EPIBG.SHEETS.FAMILY);
+  const studentSheet = requireSheet_(ss, EPIBG.SHEETS.STUDENT);
+  const paymentSheet = requireSheet_(ss, EPIBG.SHEETS.PAYMENT);
+
+  const familyRows = getTable_(familySheet);
+  const familyRow = familyRows
+    .slice(1)
+    .find(row => clean_(row[0]) === id);
+
+  if (!familyRow) {
+    throw new Error('Rekod keluarga tidak ditemui: ' + id);
+  }
+
+  const students = getTable_(studentSheet)
+    .slice(1)
+    .filter(row => clean_(row[7]) === id)
+    .map(row => ({
+      studentId: clean_(row[0]),
+      name: clean_(row[1]),
+      year: clean_(row[3]),
+      className: clean_(row[4]),
+      teacher: clean_(row[5])
+    }));
+
+  const rate = number_(familyRow[9]);
+  let paid = 0;
+
+  if (paymentSheet.getLastRow() >= 2) {
+    const paymentRows = paymentSheet
+      .getRange(
+        2,
+        1,
+        paymentSheet.getLastRow() - 1,
+        Math.min(14, paymentSheet.getLastColumn())
+      )
+      .getValues();
+
+    paymentRows.forEach(row => {
+      const paymentFamilyId = clean_(row[1]);
+      const paymentStatus = clean_(row[9]).toUpperCase();
+
+      if (
+        paymentFamilyId === id &&
+        paymentStatus === EPIBG.PAYMENT_STATUS
+      ) {
+        paid += number_(row[7]);
+      }
+    });
+  }
+
+  paid = Math.max(0, paid);
+  const balance = Math.max(0, rate - paid);
+
+  let status = 'BELUM BAYAR';
+  if (paid > 0 && balance > 0) status = 'BAYARAN SEPARA';
+  if (paid > 0 && balance <= 0) status = 'SUDAH BAYAR';
+
+  return {
+    success: true,
+    family: {
+      familyId: id,
+      guardian: clean_(familyRow[1]),
+      phone: clean_(familyRow[3]),
+      rate,
+      paid,
+      balance,
+      status,
+      students
+    }
+  };
+}
+
+function savePayment(payload) {
+  validatePaymentPayload_(payload);
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    const ss = getSpreadsheet_();
+    const paymentSheet = requireSheet_(ss, EPIBG.SHEETS.PAYMENT);
+    const family = getFamilyDetails(payload.familyId).family;
+    const amount = number_(payload.amount);
+
+    if (amount <= 0) {
+      throw new Error('Amaun bayaran mesti melebihi RM0.');
+    }
+
+    if (family.balance <= 0) {
+      throw new Error('Keluarga ini telah menjelaskan bayaran sepenuhnya.');
+    }
+
+    if (amount > family.balance) {
+      throw new Error(
+        'Amaun melebihi baki keluarga iaitu RM' +
+        money_(family.balance) +
+        '.'
+      );
+    }
+
+    const receiptNo = nextReceiptNo_(paymentSheet);
+    const timestamp = new Date();
+    const studentNames = family.students.map(x => x.name).join(' | ');
+    const classes = [...new Set(
+      family.students.map(x =>
+        (x.year ? 'TAHUN ' + x.year + ' ' : '') + x.className
+      )
+    )].join(' | ');
+
+    const row = [
+      timestamp,
+      family.familyId,
+      family.guardian,
+      studentNames,
+      classes,
+      clean_(payload.method),
+      clean_(payload.reference),
+      amount,
+      clean_(payload.officer),
+      EPIBG.PAYMENT_STATUS,
+      receiptNo,
+      clean_(payload.note),
+      'OK',
+      'TXN-' + Utilities.formatDate(
+        timestamp,
+        EPIBG.TIMEZONE,
+        'yyyyMMdd-HHmmss'
+      )
+    ];
+
+    const newRow = getNextPaymentRow_(paymentSheet);
+
+    paymentSheet
+      .getRange(newRow, 1, 1, row.length)
+      .setValues([row]);
+
+    paymentSheet
+      .getRange(newRow, 1)
+      .setNumberFormat('dd/MM/yyyy HH:mm');
+
+    paymentSheet
+      .getRange(newRow, 8)
+      .setNumberFormat('"RM" #,##0.00');
+
+    updateFamilyPaymentSummary_(ss, family.familyId);
+    setReceiptSheet_(ss, receiptNo);
+    appendAudit_(
+      ss,
+      'BAYARAN DISAHKAN',
+      receiptNo + ' | ' + family.familyId + ' | RM' + money_(amount)
+    );
+
+    SpreadsheetApp.flush();
+
+    return {
+      success: true,
+      message: 'Bayaran berjaya direkodkan.',
+      receipt: {
+        receiptNo,
+        date: Utilities.formatDate(
+          timestamp,
+          EPIBG.TIMEZONE,
+          'dd/MM/yyyy HH:mm'
+        ),
+        guardian: family.guardian,
+        familyId: family.familyId,
+        students: family.students,
+        method: clean_(payload.method),
+        reference: clean_(payload.reference) || '-',
+        amount,
+        officer: clean_(payload.officer),
+        note: clean_(payload.note)
+      },
+      family: getFamilyDetails(family.familyId).family
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getSpreadsheet_() {
+  return SpreadsheetApp.openById(EPIBG.SPREADSHEET_ID);
+}
+
+function requireSheet_(ss, name) {
+  const sheet = ss.getSheetByName(name);
+
+  if (!sheet) {
+    throw new Error('Sheet "' + name + '" tidak ditemui.');
+  }
+
+  return sheet;
+}
+
+function getTable_(sheet) {
+  if (sheet.getLastRow() < 1 || sheet.getLastColumn() < 1) {
+    return [];
+  }
+
+  return sheet
+    .getRange(
+      1,
+      1,
+      sheet.getLastRow(),
+      sheet.getLastColumn()
+    )
+    .getValues();
+}
+
+function getConfirmedPaidAmount_(familyId) {
+  const ss = getSpreadsheet_();
+  const sheet = requireSheet_(ss, EPIBG.SHEETS.PAYMENT);
+
+  if (sheet.getLastRow() < 2) return 0;
+
+  const rows = sheet
+    .getRange(
+      2,
+      1,
+      sheet.getLastRow() - 1,
+      Math.min(14, sheet.getLastColumn())
+    )
+    .getValues();
+
+  return rows.reduce((sum, row) => {
+    const sameFamily = clean_(row[1]) === familyId;
+    const confirmed =
+      clean_(row[9]).toUpperCase() === EPIBG.PAYMENT_STATUS;
+
+    return sum + (
+      sameFamily && confirmed
+        ? number_(row[7])
+        : 0
+    );
+  }, 0);
+}
+
+function nextReceiptNo_(paymentSheet) {
+  const prefix =
+    EPIBG.RECEIPT_PREFIX +
+    '-' +
+    EPIBG.SESSION_YEAR +
+    '-';
+
+  if (paymentSheet.getLastRow() < 2) {
+    return prefix + '0001';
+  }
+
+  const values = paymentSheet
+    .getRange(
+      2,
+      11,
+      paymentSheet.getLastRow() - 1,
+      1
+    )
+    .getDisplayValues()
+    .flat();
+
+  let maxNo = 0;
+
+  values.forEach(value => {
+    const match = String(value).match(/(\d+)$/);
+
+    if (match) {
+      maxNo = Math.max(maxNo, Number(match[1]));
+    }
+  });
+
+  return prefix + String(maxNo + 1).padStart(4, '0');
+}
+
+function updateFamilyPaymentSummary_(ss, familyId) {
+  const sheet = requireSheet_(ss, EPIBG.SHEETS.FAMILY);
+
+  if (sheet.getLastRow() < 2) return;
+
+  const ids = sheet
+    .getRange(2, 1, sheet.getLastRow() - 1, 1)
+    .getDisplayValues()
+    .flat();
+
+  const index = ids.findIndex(id => clean_(id) === familyId);
+
+  if (index < 0) return;
+
+  const row = index + 2;
+  const rate = number_(sheet.getRange(row, 10).getValue());
+  const paid = getConfirmedPaidAmount_(familyId);
+  const balance = Math.max(0, rate - paid);
+
+  const status =
+    balance <= 0
+      ? 'SUDAH BAYAR'
+      : paid > 0
+        ? 'BAYARAN SEPARA'
+        : 'BELUM BAYAR';
+
+  sheet
+    .getRange(row, 11, 1, 3)
+    .setValues([[paid, balance, status]]);
+
+  sheet
+    .getRange(row, 10, 1, 3)
+    .setNumberFormat('"RM" #,##0.00');
+}
+
+function setReceiptSheet_(ss, receiptNo) {
+  const sheet = ss.getSheetByName(EPIBG.SHEETS.RECEIPT);
+
+  if (sheet) {
+    sheet.getRange('B3').setValue(receiptNo);
+  }
+}
+
+function appendAudit_(ss, action, detail) {
+  let sheet = ss.getSheetByName('LOG_SISTEM');
+
+  if (!sheet) {
+    sheet = ss.insertSheet('LOG_SISTEM');
+    sheet
+      .getRange(1, 1, 1, 5)
+      .setValues([[
+        'Tarikh',
+        'Pengguna',
+        'Tindakan',
+        'Status',
+        'Butiran'
+      ]]);
+  }
+
+  const email =
+    Session.getActiveUser().getEmail() ||
+    'WEB APP';
+
+  const nextRow = sheet.getLastRow() + 1;
+
+  sheet
+    .getRange(nextRow, 1, 1, 5)
+    .setValues([[
+      new Date(),
+      email,
+      action,
+      'BERJAYA',
+      detail
+    ]]);
+
+  sheet
+    .getRange(nextRow, 1)
+    .setNumberFormat('dd/MM/yyyy HH:mm:ss');
+}
+
+function validatePaymentPayload_(payload) {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Data bayaran tidak diterima.');
+  }
+
+  if (!clean_(payload.familyId)) {
+    throw new Error('Sila pilih murid atau keluarga.');
+  }
+
+  if (
+    !['TUNAI', 'BANK / QR']
+      .includes(clean_(payload.method))
+  ) {
+    throw new Error('Kaedah bayaran tidak sah.');
+  }
+
+  if (
+    ![
+      'BENDAHARI PIBG',
+      'PENOLONG BENDAHARI',
+      'SETIAUSAHA PIBG',
+      'GURU KELAS'
+    ].includes(clean_(payload.officer))
+  ) {
+    throw new Error('Penerima atau penyemak tidak sah.');
+  }
+}
+
+function clean_(value) {
+  return String(
+    value == null ? '' : value
+  )
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function normalizeSearch_(value) {
+  return clean_(value).toUpperCase();
+}
+
+function number_(value) {
+  if (typeof value === 'number') {
+    return isFinite(value) ? value : 0;
+  }
+
+  const parsed = Number(
+    String(value == null ? '' : value)
+      .replace(/[^\d.-]/g, '')
+  );
+
+  return isFinite(parsed) ? parsed : 0;
+}
+
+function money_(value) {
+  return number_(value).toFixed(2);
+}
+
+function getNextPaymentRow_(sheet) {
+  const maxRows = Math.max(sheet.getMaxRows(), 2);
+
+  const ids = sheet
+    .getRange(2, 2, maxRows - 1, 1)
+    .getDisplayValues()
+    .flat();
+
+  const firstEmpty = ids.findIndex(
+    value => clean_(value) === ''
+  );
+
+  if (firstEmpty >= 0) {
+    return firstEmpty + 2;
+  }
+
+  sheet.insertRowAfter(maxRows);
+  return maxRows + 1;
+}
+
+/**
+ * Ujian backend. Jalankan fungsi ini dari Apps Script.
+ */
+function testSearchStudents() {
+  const result = searchStudents('QAIRINA');
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}

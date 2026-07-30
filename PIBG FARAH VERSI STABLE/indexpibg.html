@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <style>
+    :root{
+      --blue:#0b4f8a;
+      --yellow:#f6c445;
+      --ink:#172033;
+      --muted:#64748b;
+      --danger:#b42318;
+      --ok:#087443;
+    }
+
+    *{box-sizing:border-box}
+
+    body{
+      margin:0;
+      font-family:Arial,sans-serif;
+      background:linear-gradient(135deg,#eef7ff,#f8fbff);
+      color:var(--ink);
+    }
+
+    .wrap{
+      max-width:900px;
+      margin:auto;
+      padding:18px;
+    }
+
+    .top{
+      background:var(--blue);
+      color:white;
+      border-radius:18px;
+      padding:20px;
+      box-shadow:0 14px 30px #0b4f8a25;
+    }
+
+    .top small{opacity:.85}
+    .top h1{margin:5px 0 0;font-size:24px}
+
+    .grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:16px;
+      margin-top:16px;
+    }
+
+    .card{
+      background:white;
+      border-radius:16px;
+      padding:18px;
+      box-shadow:0 8px 24px #1e3a5f12;
+      border:1px solid #dceaf5;
+    }
+
+    .full{grid-column:1/-1}
+
+    label{
+      display:block;
+      font-size:12px;
+      font-weight:700;
+      text-transform:uppercase;
+      margin:12px 0 6px;
+      color:#334155;
+    }
+
+    input,select,textarea{
+      width:100%;
+      padding:12px;
+      border:1px solid #cbd5e1;
+      border-radius:11px;
+      font-size:15px;
+      background:white;
+    }
+
+    input:focus,select:focus,textarea:focus{
+      outline:3px solid #bfdbfe;
+      border-color:#3b82f6;
+    }
+
+    .row{
+      display:flex;
+      gap:10px;
+    }
+
+    .row>*{flex:1}
+
+    button{
+      border:0;
+      border-radius:11px;
+      padding:12px 16px;
+      font-weight:700;
+      cursor:pointer;
+    }
+
+    .primary{background:var(--blue);color:white}
+    .yellow{background:var(--yellow);color:#172033}
+    .ghost{background:#e8f1f8;color:var(--blue)}
+    button:disabled{opacity:.5;cursor:not-allowed}
+
+    .result{
+      border:1px solid #dbe7f0;
+      border-radius:12px;
+      padding:12px;
+      margin-top:8px;
+      cursor:pointer;
+    }
+
+    .result:hover{
+      border-color:var(--blue);
+      background:#f2f8fd;
+    }
+
+    .result b{display:block}
+    .muted{color:var(--muted);font-size:13px}
+
+    .pill{
+      display:inline-block;
+      border-radius:999px;
+      padding:5px 9px;
+      font-size:12px;
+      font-weight:bold;
+    }
+
+    .unpaid{background:#fff1f0;color:#b42318}
+    .paid{background:#ecfdf3;color:#087443}
+    .partial{background:#fff8e1;color:#8a5a00}
+
+    .summary{
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:8px;
+      margin-top:12px;
+    }
+
+    .metric{
+      background:#f7fafc;
+      border-radius:11px;
+      padding:11px;
+      text-align:center;
+    }
+
+    .metric strong{
+      display:block;
+      font-size:18px;
+    }
+
+    .student{
+      padding:8px 0;
+      border-bottom:1px dashed #d8e2ea;
+    }
+
+    .hidden{display:none!important}
+
+    .notice{
+      padding:11px;
+      border-radius:10px;
+      margin:10px 0;
+      font-weight:600;
+    }
+
+    .error{background:#fff1f0;color:var(--danger)}
+    .success{background:#ecfdf3;color:var(--ok)}
+
+    .loader{
+      display:inline-block;
+      width:16px;
+      height:16px;
+      border:2px solid #ffffff66;
+      border-top-color:white;
+      border-radius:50%;
+      animation:spin .7s linear infinite;
+    }
+
+    @keyframes spin{
+      to{transform:rotate(360deg)}
+    }
+
+    .receipt{
+      border:2px solid #172033;
+      padding:24px;
+      background:white;
+    }
+
+    .receipt h2,.receipt h3{
+      text-align:center;
+      margin:4px;
+    }
+
+    .receipt table{
+      width:100%;
+      border-collapse:collapse;
+      margin-top:18px;
+    }
+
+    .receipt td{
+      padding:7px;
+      border-bottom:1px solid #ddd;
+      vertical-align:top;
+    }
+
+    @media(max-width:700px){
+      .grid{grid-template-columns:1fr}
+      .full{grid-column:auto}
+      .row{flex-direction:column}
+      .summary{grid-template-columns:1fr 1fr}
+      .wrap{padding:10px}
+    }
+
+    @media print{
+      body{background:white}
+      .no-print,.top,.grid>*:not(#receiptCard){
+        display:none!important
+      }
+      #receiptCard{
+        display:block!important;
+        box-shadow:none;
+        border:0;
+        padding:0
+      }
+      .wrap{max-width:none;padding:0}
+      .receipt{border:2px solid #000}
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <header class="top">
+      <small>
+        SEKOLAH KEBANGSAAN TEMIN ·
+        <span id="version">v2.1.0</span>
+      </small>
+      <h1>ePIBG — Kaunter Bendahari</h1>
+    </header>
+
+    <div id="globalNotice" class="notice hidden"></div>
+
+    <main class="grid">
+      <section class="card">
+        <h2>🔍 Cari Murid</h2>
+
+        <div class="row">
+          <input
+            id="searchInput"
+            placeholder="Taip nama murid..."
+            autocomplete="off"
+          >
+
+          <button
+            id="searchBtn"
+            class="primary"
+            type="button"
+          >
+            Cari
+          </button>
+        </div>
+
+        <div id="searchResults"></div>
+      </section>
+
+      <section id="familyCard" class="card hidden">
+        <h2>Maklumat Keluarga</h2>
+
+        <div>
+          <span id="statusPill" class="pill"></span>
+        </div>
+
+        <h3 id="guardian"></h3>
+        <div id="familyId" class="muted"></div>
+        <div id="students"></div>
+
+        <div class="summary">
+          <div class="metric">
+            <small>Kadar</small>
+            <strong id="rate">RM0.00</strong>
+          </div>
+
+          <div class="metric">
+            <small>Dibayar</small>
+            <strong id="paid">RM0.00</strong>
+          </div>
+
+          <div class="metric">
+            <small>Baki</small>
+            <strong id="balance">RM0.00</strong>
+          </div>
+        </div>
+      </section>
+
+      <section id="paymentCard" class="card full hidden">
+        <h2>💳 Rekod Bayaran</h2>
+
+        <div class="row">
+          <div>
+            <label>Amaun (RM)</label>
+            <input
+              id="amount"
+              type="number"
+              min="0.01"
+              step="0.01"
+            >
+          </div>
+
+          <div>
+            <label>Kaedah</label>
+            <select id="method"></select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label>Penerima / Penyemak</label>
+            <select id="officer"></select>
+          </div>
+
+          <div>
+            <label>No. Rujukan</label>
+            <input
+              id="reference"
+              placeholder="Opsyenal untuk tunai"
+            >
+          </div>
+        </div>
+
+        <label>Catatan</label>
+        <textarea id="note" rows="2"></textarea>
+
+        <br><br>
+
+        <button
+          id="payBtn"
+          class="yellow"
+          type="button"
+        >
+          Sahkan Bayaran & Jana Resit
+        </button>
+      </section>
+
+      <section id="receiptCard" class="card full hidden">
+        <div
+          class="no-print row"
+          style="margin-bottom:14px"
+        >
+          <button
+            id="printBtn"
+            class="primary"
+            type="button"
+          >
+            🖨 Cetak Resit
+          </button>
+
+          <button
+            id="newBtn"
+            class="ghost"
+            type="button"
+          >
+            Bayaran Baharu
+          </button>
+        </div>
+
+        <div id="receiptView" class="receipt"></div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    let selectedFamily = null;
+
+    const $ = id => document.getElementById(id);
+
+    const money = value =>
+      'RM' + Number(value || 0).toFixed(2);
+
+    const esc = value =>
+      String(value ?? '').replace(
+        /[&<>"']/g,
+        char => ({
+          '&':'&amp;',
+          '<':'&lt;',
+          '>':'&gt;',
+          '"':'&quot;',
+          "'":'&#39;'
+        }[char])
+      );
+
+    function initPage() {
+      $('searchBtn').addEventListener('click', runSearch);
+      $('payBtn').addEventListener('click', savePayment);
+      $('printBtn').addEventListener('click', () => window.print());
+      $('newBtn').addEventListener('click', newTransaction);
+
+      $('searchInput').addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          runSearch();
+        }
+      });
+
+      google.script.run
+        .withSuccessHandler(initApp)
+        .withFailureHandler(showError)
+        .getAppBootstrap();
+    }
+
+    function initApp(data) {
+      $('version').textContent = 'v' + data.version;
+
+      $('method').innerHTML = data.methods
+        .map(item => `<option>${esc(item)}</option>`)
+        .join('');
+
+      $('officer').innerHTML = data.officers
+        .map(item => `<option>${esc(item)}</option>`)
+        .join('');
+    }
+
+    function runSearch() {
+      const query = $('searchInput').value.trim();
+
+      if (query.length < 2) {
+        showError({
+          message:'Taip sekurang-kurangnya 2 aksara.'
+        });
+        return;
+      }
+
+      setBusy($('searchBtn'), true, 'Mencari');
+
+      google.script.run
+        .withSuccessHandler(data => {
+          setBusy($('searchBtn'), false, 'Cari');
+          renderResults(data.results || []);
+        })
+        .withFailureHandler(error => {
+          setBusy($('searchBtn'), false, 'Cari');
+          showError(error);
+        })
+        .searchStudents(query);
+    }
+
+    function renderResults(items) {
+      $('searchResults').innerHTML = items.length
+        ? items.map(item => `
+            <div
+              class="result"
+              data-family-id="${esc(item.familyId)}"
+            >
+              <b>${esc(item.name)}</b>
+              <span class="muted">
+                Tahun ${esc(item.year)}
+                ${esc(item.className)}
+                · ${esc(item.familyId)}
+              </span>
+            </div>
+          `).join('')
+        : '<p class="muted">Tiada murid ditemui.</p>';
+
+      document
+        .querySelectorAll('.result')
+        .forEach(element => {
+          element.addEventListener('click', () => {
+            selectFamily(element.dataset.familyId);
+          });
+        });
+    }
+
+    function selectFamily(familyId) {
+      google.script.run
+        .withSuccessHandler(data => {
+          selectedFamily = data.family;
+          renderFamily(selectedFamily);
+        })
+        .withFailureHandler(showError)
+        .getFamilyDetails(familyId);
+    }
+
+    function renderFamily(family) {
+      $('familyCard').classList.remove('hidden');
+
+      $('paymentCard').classList.toggle(
+        'hidden',
+        family.balance <= 0
+      );
+
+      $('guardian').textContent = family.guardian;
+
+      $('familyId').textContent =
+        family.familyId +
+        (family.phone ? ' · ' + family.phone : '');
+
+      $('students').innerHTML = family.students
+        .map(student => `
+          <div class="student">
+            <b>${esc(student.name)}</b>
+            <div class="muted">
+              Tahun ${esc(student.year)}
+              ${esc(student.className)}
+            </div>
+          </div>
+        `)
+        .join('');
+
+      $('rate').textContent = money(family.rate);
+      $('paid').textContent = money(family.paid);
+      $('balance').textContent = money(family.balance);
+      $('amount').value = Number(family.balance).toFixed(2);
+
+      const pill = $('statusPill');
+      pill.textContent = family.status;
+
+      pill.className =
+        'pill ' +
+        (
+          family.status === 'SUDAH BAYAR'
+            ? 'paid'
+            : family.status === 'BAYARAN SEPARA'
+              ? 'partial'
+              : 'unpaid'
+        );
+
+      $('familyCard').scrollIntoView({
+        behavior:'smooth'
+      });
+    }
+
+    function savePayment() {
+      if (!selectedFamily) {
+        showError({
+          message:'Pilih murid dahulu.'
+        });
+        return;
+      }
+
+      const payload = {
+        familyId: selectedFamily.familyId,
+        amount: $('amount').value,
+        method: $('method').value,
+        officer: $('officer').value,
+        reference: $('reference').value,
+        note: $('note').value
+      };
+
+      const confirmed = confirm(
+        `Sahkan bayaran ${money(payload.amount)} ` +
+        `untuk ${selectedFamily.guardian}?`
+      );
+
+      if (!confirmed) return;
+
+      setBusy($('payBtn'), true, 'Menyimpan');
+
+      google.script.run
+        .withSuccessHandler(data => {
+          setBusy(
+            $('payBtn'),
+            false,
+            'Sahkan Bayaran & Jana Resit'
+          );
+
+          selectedFamily = data.family;
+          renderReceipt(data.receipt);
+
+          showSuccess(
+            data.message +
+            ' No. resit: ' +
+            data.receipt.receiptNo
+          );
+        })
+        .withFailureHandler(error => {
+          setBusy(
+            $('payBtn'),
+            false,
+            'Sahkan Bayaran & Jana Resit'
+          );
+
+          showError(error);
+        })
+        .savePayment(payload);
+    }
+
+    function renderReceipt(receipt) {
+      $('receiptCard').classList.remove('hidden');
+
+      $('receiptView').innerHTML = `
+        <h2>PIBG SEKOLAH KEBANGSAAN TEMIN</h2>
+        <h3>RESIT RASMI</h3>
+
+        <table>
+          <tr>
+            <td>No. Resit</td>
+            <td><b>${esc(receipt.receiptNo)}</b></td>
+          </tr>
+
+          <tr>
+            <td>Tarikh</td>
+            <td>${esc(receipt.date)}</td>
+          </tr>
+
+          <tr>
+            <td>ID Keluarga</td>
+            <td>${esc(receipt.familyId)}</td>
+          </tr>
+
+          <tr>
+            <td>Nama Penjaga</td>
+            <td>${esc(receipt.guardian)}</td>
+          </tr>
+
+          <tr>
+            <td>Anak Jagaan</td>
+            <td>
+              ${receipt.students
+                .map(student =>
+                  `${esc(student.name)} — ` +
+                  `Tahun ${esc(student.year)} ` +
+                  `${esc(student.className)}`
+                )
+                .join('<br>')}
+            </td>
+          </tr>
+
+          <tr>
+            <td>Kaedah</td>
+            <td>${esc(receipt.method)}</td>
+          </tr>
+
+          <tr>
+            <td>No. Rujukan</td>
+            <td>${esc(receipt.reference)}</td>
+          </tr>
+
+          <tr>
+            <td>Amaun</td>
+            <td>
+              <b style="font-size:20px">
+                ${money(receipt.amount)}
+              </b>
+            </td>
+          </tr>
+
+          <tr>
+            <td>Diterima / Disemak</td>
+            <td>${esc(receipt.officer)}</td>
+          </tr>
+        </table>
+
+        <p style="
+          text-align:center;
+          margin-top:28px;
+          font-size:12px
+        ">
+          Resit ini dijana secara elektronik oleh
+          ePIBG SK Temin.
+        </p>
+      `;
+
+      $('receiptCard').scrollIntoView({
+        behavior:'smooth'
+      });
+    }
+
+    function newTransaction() {
+      selectedFamily = null;
+
+      $('searchInput').value = '';
+      $('searchResults').innerHTML = '';
+      $('reference').value = '';
+      $('note').value = '';
+
+      $('familyCard').classList.add('hidden');
+      $('paymentCard').classList.add('hidden');
+      $('receiptCard').classList.add('hidden');
+
+      $('searchInput').focus();
+
+      window.scrollTo({
+        top:0,
+        behavior:'smooth'
+      });
+    }
+
+    function setBusy(button, busy, text) {
+      button.disabled = busy;
+
+      button.innerHTML = busy
+        ? `<span class="loader"></span> ${text}...`
+        : text;
+    }
+
+    function showError(error) {
+      showNotice(
+        error && error.message
+          ? error.message
+          : String(error),
+        'error'
+      );
+    }
+
+    function showSuccess(message) {
+      showNotice(message, 'success');
+    }
+
+    function showNotice(message, type) {
+      const notice = $('globalNotice');
+
+      notice.textContent = message;
+      notice.className = 'notice ' + type;
+
+      notice.scrollIntoView({
+        behavior:'smooth'
+      });
+
+      setTimeout(() => {
+        notice.classList.add('hidden');
+      }, 7000);
+    }
+
+    document.addEventListener(
+      'DOMContentLoaded',
+      initPage
+    );
+  </script>
+</body>
+</html>
